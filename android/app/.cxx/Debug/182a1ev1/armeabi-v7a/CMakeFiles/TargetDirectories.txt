@@ -1,0 +1,2 @@
+D:/G_working/gesture control/front_end/android/app/.cxx/Debug/182a1ev1/armeabi-v7a/CMakeFiles/edit_cache.dir
+D:/G_working/gesture control/front_end/android/app/.cxx/Debug/182a1ev1/armeabi-v7a/CMakeFiles/rebuild_cache.dir

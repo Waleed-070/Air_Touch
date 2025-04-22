@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Air Touch</string>
+    <string name="accessibility_service_description">Air Touch Gesture Service enables gesture detection for controlling the device with hand gestures</string>
+</resources> 

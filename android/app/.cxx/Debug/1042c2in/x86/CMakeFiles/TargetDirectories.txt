@@ -1,0 +1,2 @@
+D:/gesture control/gesture control/front_end/android/app/.cxx/Debug/1042c2in/x86/CMakeFiles/edit_cache.dir
+D:/gesture control/gesture control/front_end/android/app/.cxx/Debug/1042c2in/x86/CMakeFiles/rebuild_cache.dir

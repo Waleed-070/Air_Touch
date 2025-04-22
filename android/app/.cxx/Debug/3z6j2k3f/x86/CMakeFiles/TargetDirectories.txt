@@ -1,0 +1,2 @@
+D:/Zip-project/gesture-latest-version/gesture control (2)/gesture control (2)/gesture control/front_end/android/app/.cxx/Debug/3z6j2k3f/x86/CMakeFiles/edit_cache.dir
+D:/Zip-project/gesture-latest-version/gesture control (2)/gesture control (2)/gesture control/front_end/android/app/.cxx/Debug/3z6j2k3f/x86/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,2 @@
+C:/Users/w5677/OneDrive/Desktop/Documents/gesture control/front_end/android/app/.cxx/Debug/673p3j5s/armeabi-v7a/CMakeFiles/edit_cache.dir
+C:/Users/w5677/OneDrive/Desktop/Documents/gesture control/front_end/android/app/.cxx/Debug/673p3j5s/armeabi-v7a/CMakeFiles/rebuild_cache.dir
