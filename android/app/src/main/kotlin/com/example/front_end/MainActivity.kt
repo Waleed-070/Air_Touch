@@ -629,6 +629,24 @@ class MainActivity: FlutterActivity() {
                         result.error("ERROR", "Failed to start TouchInjectionService", e.toString())
                     }
                 }
+                "rejectCall" -> {
+                    try {
+                        val success = rejectIncomingCall()
+                        result.success(success)
+                    } catch (e: Exception) {
+                        Log.e("CallDetection", "Failed to reject call: ${e.message}")
+                        result.error("CALL_REJECTION_ERROR", "Failed to reject call: ${e.message}", null)
+                    }
+                }
+                "endOngoingCall" -> {
+                    try {
+                        val success = endOngoingCall()
+                        result.success(success)
+                    } catch (e: Exception) {
+                        Log.e("CallDetection", "Failed to end ongoing call: ${e.message}")
+                        result.error("CALL_END_ERROR", "Failed to end ongoing call: ${e.message}", null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -707,6 +725,15 @@ class MainActivity: FlutterActivity() {
                         result.error("CALL_REJECTION_ERROR", "Failed to reject call: ${e.message}", null)
                     }
                 }
+                "endOngoingCall" -> {
+                    try {
+                        val success = endOngoingCall()
+                        result.success(success)
+                    } catch (e: Exception) {
+                        Log.e("CallDetection", "Failed to end ongoing call: ${e.message}")
+                        result.error("CALL_END_ERROR", "Failed to end ongoing call: ${e.message}", null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -774,6 +801,39 @@ class MainActivity: FlutterActivity() {
             }
         } catch (e: Exception) {
             Log.e("CallDetection", "Error rejecting call: ${e.message}")
+            return false
+        }
+    }
+    
+    private fun endOngoingCall(): Boolean {
+        try {
+            Log.d("CallDetection", "Attempting to end ongoing call")
+            
+            // Access the TelecomManager service
+            val telecomManager = getSystemService(Context.TELECOM_SERVICE) as? android.telecom.TelecomManager
+            
+            if (telecomManager == null) {
+                Log.e("CallDetection", "TelecomManager not available")
+                return false
+            }
+            
+            // Check for the required permission
+            if (checkSelfPermission(android.Manifest.permission.ANSWER_PHONE_CALLS) != PackageManager.PERMISSION_GRANTED) {
+                Log.e("CallDetection", "ANSWER_PHONE_CALLS permission not granted")
+                return false
+            }
+            
+            // Try to end the call
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                telecomManager.endCall()
+                Log.d("CallDetection", "Ended ongoing call")
+                return true
+            } else {
+                Log.e("CallDetection", "Android version too low for endCall")
+                return false
+            }
+        } catch (e: Exception) {
+            Log.e("CallDetection", "Error ending call: ${e.message}")
             return false
         }
     }

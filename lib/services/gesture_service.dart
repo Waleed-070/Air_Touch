@@ -17,7 +17,7 @@ typedef GestureActionCallback = void Function(
 class GestureService {
   bool isProcessing = false;
   // Replace hardcoded URL with dynamic configuration
-  String _serverUrl = 'http://192.168.1.19:8000/upload_frame';
+  String _serverUrl = 'http://192.168.1.18:8000/upload_frame';
   
   // Add server connectivity flags
   bool _serverConnectionLost = false;

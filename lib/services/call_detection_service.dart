@@ -17,8 +17,10 @@ class CallDetectionService {
   bool _isInitialized = false;
   bool _isListening = false;
   bool _isIncomingCall = false;
+  bool _isOngoingCall = false;
   
   bool get isIncomingCall => _isIncomingCall;
+  bool get isOngoingCall => _isOngoingCall;
   
   // Initialize the call detection
   Future<void> initialize() async {
@@ -33,10 +35,18 @@ class CallDetectionService {
       if (call.method == 'onIncomingCall') {
         final bool isIncomingCall = call.arguments as bool;
         _isIncomingCall = isIncomingCall;
+        _isOngoingCall = false; // Reset on new call
         
         print('Call detection: incoming call status changed to: $isIncomingCall');
         
         _callStreamController.add(isIncomingCall);
+      } else if (call.method == 'onOngoingCall') {
+        final bool isOngoingCall = call.arguments as bool;
+        _isOngoingCall = isOngoingCall;
+        
+        print('Call detection: ongoing call status changed to: $isOngoingCall');
+        
+        _callStreamController.add(isOngoingCall);
       }
       return null;
     });
@@ -94,6 +104,7 @@ class CallDetectionService {
         final bool result = await _callChannel.invokeMethod('acceptCall') ?? false;
         if (result) {
           _isIncomingCall = false;
+          _isOngoingCall = true; // Set ongoing call flag
           _callStreamController.add(false);
         }
         return result;
@@ -131,11 +142,45 @@ class CallDetectionService {
     return false;
   }
   
+  // End ongoing call
+  Future<bool> endOngoingCall() async {
+    print('Ending ongoing call');
+    if (!_isOngoingCall) {
+      print('No ongoing call to end');
+      return false;
+    }
+    
+    if (Platform.isAndroid) {
+      try {
+        final bool result = await _callChannel.invokeMethod('endOngoingCall') ?? false;
+        if (result) {
+          _isOngoingCall = false;
+          _callStreamController.add(false);
+        }
+        return result;
+      } catch (e) {
+        print('Error ending call: $e');
+        return false;
+      }
+    }
+    
+    return false;
+  }
+  
   // Simulate an incoming call (for testing)
   Future<void> simulateIncomingCall({required bool isIncoming}) async {
     print('Simulating incoming call: $isIncoming');
     _isIncomingCall = isIncoming;
+    _isOngoingCall = false;
     _callStreamController.add(isIncoming);
+  }
+  
+  // Simulate an ongoing call (for testing)
+  Future<void> simulateOngoingCall({required bool isOngoing}) async {
+    print('Simulating ongoing call: $isOngoing');
+    _isOngoingCall = isOngoing;
+    _isIncomingCall = false;
+    _callStreamController.add(isOngoing);
   }
   
   // Dispose the service

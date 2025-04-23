@@ -51,7 +51,7 @@ class BackgroundService {
           'targetActivity': 'com.instagram.android.activity.MainTabActivity',
           'disableProactiveTests': true, // IMPORTANT: Disable any test launches that aren't triggered by actual gestures
           'server': {
-            'url': 'http://192.168.1.19:8000/upload_frame',
+            'url': 'http://192.168.1.18:8000/upload_frame',
             'gestures': ['open_app', 'scroll_up', 'scroll_down'],
             'threshold': 0.70  // Increased threshold to 70% for more deliberate detection
           }

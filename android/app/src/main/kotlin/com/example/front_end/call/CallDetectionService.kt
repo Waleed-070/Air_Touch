@@ -31,16 +31,19 @@ class CallDetectionService(private val context: Context, private val methodChann
                         // Phone is ringing
                         Log.d(TAG, "Phone is ringing")
                         methodChannel.invokeMethod("onIncomingCall", true)
+                        methodChannel.invokeMethod("onOngoingCall", false)
                     }
                     TelephonyManager.CALL_STATE_IDLE -> {
                         // Call ended or no call
                         Log.d(TAG, "Call ended or no call")
                         methodChannel.invokeMethod("onIncomingCall", false)
+                        methodChannel.invokeMethod("onOngoingCall", false)
                     }
                     TelephonyManager.CALL_STATE_OFFHOOK -> {
                         // Call answered or outgoing call
                         Log.d(TAG, "Call answered or outgoing call")
                         methodChannel.invokeMethod("onIncomingCall", false)
+                        methodChannel.invokeMethod("onOngoingCall", true)
                     }
                 }
             }
@@ -94,14 +97,17 @@ class CallDetectionService(private val context: Context, private val methodChann
                     TelephonyManager.EXTRA_STATE_RINGING -> {
                         Log.d(TAG, "Broadcast: Phone is ringing")
                         methodChannel.invokeMethod("onIncomingCall", true)
+                        methodChannel.invokeMethod("onOngoingCall", false)
                     }
                     TelephonyManager.EXTRA_STATE_IDLE -> {
                         Log.d(TAG, "Broadcast: Call ended or no call")
                         methodChannel.invokeMethod("onIncomingCall", false)
+                        methodChannel.invokeMethod("onOngoingCall", false)
                     }
                     TelephonyManager.EXTRA_STATE_OFFHOOK -> {
                         Log.d(TAG, "Broadcast: Call answered or outgoing call")
                         methodChannel.invokeMethod("onIncomingCall", false)
+                        methodChannel.invokeMethod("onOngoingCall", true)
                     }
                 }
             }

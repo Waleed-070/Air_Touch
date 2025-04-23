@@ -42,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _showTouchIndicator = false;
   Offset _fingerPosition = Offset.zero;  // New position state
   bool _hasIncomingCall = false;
+  bool _hasOngoingCall = false;
   
   String? detectedGesture;
   double? confidence;
@@ -168,12 +169,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _callDetectionService.initialize();
     await _callDetectionService.startListening();
     
-    // Listen for incoming calls
-    _callDetectionService.callStream.listen((hasIncomingCall) {
-      print('Received call state change: $hasIncomingCall');
+    // Listen for call status changes
+    _callDetectionService.callStream.listen((callStateChanged) {
+      print('Received call state change notification');
       if (mounted) {
         setState(() {
-          _hasIncomingCall = hasIncomingCall;
+          _hasIncomingCall = _callDetectionService.isIncomingCall;
+          _hasOngoingCall = _callDetectionService.isOngoingCall;
         });
       }
     });
@@ -432,6 +434,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
   
   void _handleGestureAction(String gesture, double confidenceValue) {
+    // Handle ongoing call termination
+    if (_hasOngoingCall && gesture == 'thumbs_down' && confidenceValue > 0.70) {
+      print('Thumbs down gesture detected during ongoing call - ending call');
+      _endOngoingCallWithGesture();
+      return;
+    }
+    
     // Check for call-related gestures first when there's an incoming call
     if (_hasIncomingCall) {
       // Handle thumbs up gesture to accept call
@@ -538,6 +547,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } else {
       print('Failed to reject call via gesture, falling back to simulation');
       _callDetectionService.simulateIncomingCall(isIncoming: false);
+    }
+  }
+  
+  // Helper method to end ongoing call with gesture
+  Future<void> _endOngoingCallWithGesture() async {
+    if (!_hasOngoingCall) return;
+    
+    // Show visual feedback
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('👎 Ending ongoing call with thumbs down gesture'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+    
+    // Attempt to end the call
+    final bool success = await _callDetectionService.endOngoingCall();
+    
+    if (success) {
+      print('Ongoing call ended successfully via gesture');
+    } else {
+      print('Failed to end ongoing call via gesture');
+      _callDetectionService.simulateOngoingCall(isOngoing: false);
     }
   }
   
@@ -747,8 +782,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         automaticallyImplyLeading: false,
         title: const Text('Air Touch'),
-        backgroundColor: _hasIncomingCall ? Colors.red.shade700 : null,
-        foregroundColor: _hasIncomingCall ? Colors.white : null,
+        backgroundColor: _hasIncomingCall 
+            ? Colors.red.shade700 
+            : (_hasOngoingCall ? Colors.green.shade700 : null),
+        foregroundColor: _hasIncomingCall || _hasOngoingCall ? Colors.white : null,
         actions: [
           // Only show call buttons during incoming call
           if (_hasIncomingCall) ...[
@@ -791,6 +828,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   _callDetectionService.simulateIncomingCall(isIncoming: false);
                 }
               },
+            ),
+          ] else if (_hasOngoingCall) ...[
+            // Show ongoing call UI
+            const Text(
+              '📱 Call in Progress',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Use 👎 to end call',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.white,
+              ),
             ),
           ],
           if (isSpatialTouchEnabled)
