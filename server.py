@@ -137,3 +137,4 @@ if __name__ == "__main__":
     print(f"Local access URL: http://localhost:8080")
     print(f"Network access URL: http://{socket.gethostbyname(socket.gethostname())}:8080")
     uvicorn.run(app, host="0.0.0.0", port=8080)
+    # hello check
