@@ -51,8 +51,8 @@ class BackgroundService {
           'targetActivity': 'com.instagram.android.activity.MainTabActivity',
           'disableProactiveTests': true, // IMPORTANT: Disable any test launches that aren't triggered by actual gestures
           'server': {
-            'url': 'http://192.168.1.18:8000/upload_frame',
-            'gestures': ['open_app', 'scroll_up', 'scroll_down'],
+            'url': 'http://192.168.1.10:8080/upload_frame',
+            'gestures': ['open_app', 'scroll_up', 'scroll_down', 'swipe_left', 'swipe_right'],
             'threshold': 0.70  // Increased threshold to 70% for more deliberate detection
           }
         });
@@ -197,6 +197,84 @@ class BackgroundService {
     }
   }
   
+  // Simulate a horizontal swipe gesture
+  Future<void> simulateSwipe({required bool swipeLeft, required bool inBackground}) async {
+    print('Simulating ${swipeLeft ? "left" : "right"} swipe');
+    
+    // Create feedback for user
+    if (!inBackground) {
+      HapticFeedback.lightImpact();
+    }
+    
+    try {
+      // Use direct touch injection for horizontal swipe
+      await _backgroundChannel.invokeMethod('simulateSwipe', {
+        'direction': swipeLeft ? 'left' : 'right',
+        'distance': 300.0,
+        'fromGesture': true,
+        'inBackground': inBackground,
+      }).then((success) {
+        print('Horizontal swipe touch injection successful: $success');
+      }).catchError((e) {
+        print('Error using touch injection for horizontal swipe: $e');
+        
+        // Try fallback approach using touch sequence
+        _sendHorizontalSwipeSequence(swipeLeft);
+      });
+    } catch (e) {
+      print('Error simulating horizontal swipe: $e');
+    }
+  }
+  
+  // Send a synthetic horizontal swipe sequence
+  Future<void> _sendHorizontalSwipeSequence(bool swipeLeft) async {
+    try {
+      // For horizontal swipes, simulate a touch sequence
+      final startX = swipeLeft ? 0.8 : 0.2; // Start position (normalized 0-1)
+      final endX = swipeLeft ? 0.2 : 0.8;   // End position (normalized 0-1)
+      const middleY = 0.5;                  // Middle of screen height
+      
+      // Get screen dimensions from platform (or use default values)
+      final screenInfo = await _backgroundChannel.invokeMethod('getScreenDimensions') 
+          as Map<String, dynamic>? ?? {'width': 1080, 'height': 1920};
+          
+      final screenWidth = screenInfo['width'] as int;
+      final screenHeight = screenInfo['height'] as int;
+      
+      // Calculate actual pixel positions
+      final startPosX = (startX * screenWidth).round();
+      final endPosX = (endX * screenWidth).round();
+      final posY = (middleY * screenHeight).round();
+      
+      print('Simulating swipe sequence from ($startPosX,$posY) to ($endPosX,$posY)');
+      
+      // Try to simulate touch sequence
+      await _backgroundChannel.invokeMethod('simulateTouchSequence', {
+        'actions': [
+          {'type': 'down', 'x': startPosX, 'y': posY},
+          {'type': 'move', 'x': endPosX, 'y': posY},
+          {'type': 'up', 'x': endPosX, 'y': posY}
+        ],
+        'duration': 200 // Duration in milliseconds for the swipe
+      });
+      
+      print('Horizontal swipe sequence completed');
+    } catch (e) {
+      print('Error sending horizontal swipe sequence: $e');
+      
+      // Final fallback - try accessibility action if available
+      try {
+        final action = swipeLeft ? 'swipeLeft' : 'swipeRight';
+        await _backgroundChannel.invokeMethod('performAccessibilityAction', {
+          'action': action
+        });
+        print('Used accessibility action for horizontal swipe');
+      } catch (e2) {
+        print('All horizontal swipe fallbacks failed: $e2');
+      }
+    }
+  }
+  
   // Press home button
   Future<void> pressHomeButton({Function? onPressed}) async {
     print('Pressing home button via accessibility service');
@@ -272,6 +350,66 @@ class BackgroundService {
     }
   }
 
+  // Simulate a media play/pause button press
+  Future<void> toggleMediaPlayPause({required bool inBackground}) async {
+    print('Background service: Toggling media play/pause (inBackground=$inBackground)');
+    
+    // Create a feedback for user if in foreground
+    if (!inBackground) {
+      HapticFeedback.lightImpact();
+    }
+    
+    try {
+      // Use the platform channel to control media
+      await _backgroundChannel.invokeMethod('mediaPlayPause', {
+        'inBackground': inBackground,
+      });
+      print('Media play/pause toggle sent successfully');
+    } catch (e) {
+      print('Error toggling media play/pause: $e');
+    }
+  }
+
+  // Skip to next track
+  Future<void> skipToNext({required bool inBackground}) async {
+    print('Background service: Skipping to next track (inBackground=$inBackground)');
+    
+    // Create feedback for user if in foreground
+    if (!inBackground) {
+      HapticFeedback.lightImpact();
+    }
+    
+    try {
+      // Use the platform channel to control media
+      await _backgroundChannel.invokeMethod('mediaSkipNext', {
+        'inBackground': inBackground,
+      });
+      print('Media skip next command sent successfully');
+    } catch (e) {
+      print('Error skipping to next track: $e');
+    }
+  }
+
+  // Skip to previous track
+  Future<void> skipToPrevious({required bool inBackground}) async {
+    print('Background service: Skipping to previous track (inBackground=$inBackground)');
+    
+    // Create feedback for user if in foreground
+    if (!inBackground) {
+      HapticFeedback.lightImpact();
+    }
+    
+    try {
+      // Use the platform channel to control media
+      await _backgroundChannel.invokeMethod('mediaSkipPrevious', {
+        'inBackground': inBackground,
+      });
+      print('Media skip previous command sent successfully');
+    } catch (e) {
+      print('Error skipping to previous track: $e');
+    }
+  }
+
   // Setup method channel handlers for background service
   void setupMethodChannelHandler({
     Function(String, double)? onGestureDetected, 
@@ -322,6 +460,71 @@ class BackgroundService {
             print('BACKGROUND HANDLER: Scroll command sent successfully');
           } catch (e) {
             print('BACKGROUND HANDLER: Error during scroll: $e');
+          }
+        } else if (gesture == 'play_pause' && confidence > 0.15) {
+          // Lower threshold specifically for play/pause gesture (0.15)
+          print('BACKGROUND HANDLER: Detected PLAY/PAUSE gesture (${(confidence * 100).toStringAsFixed(1)}%)');
+          
+          try {
+            // Toggle media playback
+            toggleMediaPlayPause(inBackground: true);
+            print('BACKGROUND HANDLER: Play/pause command sent successfully');
+          } catch (e) {
+            print('BACKGROUND HANDLER: Error toggling media playback: $e');
+          }
+        } else if ((gesture == 'swipe_left' || gesture == 'swipe_right') && confidence > 0.70) {
+          final bool isSwipeLeft = gesture == 'swipe_left';
+          print('BACKGROUND HANDLER: Detected ${isSwipeLeft ? "LEFT" : "RIGHT"} swipe gesture (${(confidence * 100).toStringAsFixed(1)}%)');
+          
+          try {
+            // Simulate the swipe in the background
+            simulateSwipe(
+              swipeLeft: isSwipeLeft,
+              inBackground: true
+            );
+            print('BACKGROUND HANDLER: Swipe command sent successfully');
+          } catch (e) {
+            print('BACKGROUND HANDLER: Error during swipe: $e');
+          }
+        } else if (gesture == 'forward' && confidence > 0.20) {
+          // Lower threshold for forward gesture (0.20)
+          print('BACKGROUND HANDLER: Detected FORWARD gesture (${(confidence * 100).toStringAsFixed(1)}%)');
+          
+          try {
+            // Skip to next track
+            skipToNext(inBackground: true);
+            print('BACKGROUND HANDLER: Forward (next track) command sent successfully');
+          } catch (e) {
+            print('BACKGROUND HANDLER: Error sending forward command: $e');
+          }
+        } else if (gesture == 'backward' && confidence > 0.20) {
+          // Lower threshold for backward gesture (0.20)
+          print('BACKGROUND HANDLER: Detected BACKWARD gesture (${(confidence * 100).toStringAsFixed(1)}%)');
+          
+          try {
+            // Skip to previous track with multiple attempts for reliability
+            for (int i = 0; i < 2; i++) {
+              skipToPrevious(inBackground: true);
+              print('BACKGROUND HANDLER: Backward (previous track) attempt ${i+1} sent');
+              // Short delay between attempts
+              await Future.delayed(const Duration(milliseconds: 300));
+            }
+            
+            // For extra reliability, also send the command via a direct intent
+            try {
+              await _backgroundChannel.invokeMethod('directMediaPrevious', {
+                'inBackground': true,
+                'forceDoublePress': true, // Force a double press pattern
+                'highPriority': true
+              });
+              print('BACKGROUND HANDLER: Direct previous track command sent');
+            } catch (e) {
+              print('BACKGROUND HANDLER: Error with direct command: $e');
+            }
+            
+            print('BACKGROUND HANDLER: Backward (previous track) commands completed');
+          } catch (e) {
+            print('BACKGROUND HANDLER: Error sending backward command: $e');
           }
         }
       }

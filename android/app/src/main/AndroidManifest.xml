@@ -25,6 +25,21 @@
     <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+    <!-- Media control permissions -->
+    <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL" tools:ignore="ProtectedPermissions"/>
+    <!-- Add these permissions for better media control -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Required for API 31+ -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Required for more reliable media control -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Permission for sending media button broadcasts -->
+    <uses-permission android:name="android.permission.BROADCAST_STICKY" />
+    <!-- Permission needed for media intents -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Permission to receive media control intents -->
+    <uses-permission android:name="android.permission.RECEIVE_MEDIA_CONTROL" />
 
     <application
         android:label="front_end"
@@ -37,7 +52,18 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="camera"
-            android:directBootAware="true" />
+            android:directBootAware="true">
+            
+            <!-- Add intent filters to handle media button intents -->
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+            
+            <!-- Add intent filter for music service commands -->
+            <intent-filter>
+                <action android:name="com.android.music.musicservicecommand" />
+            </intent-filter>
+        </service>
             
         <activity
             android:name=".MainActivity"

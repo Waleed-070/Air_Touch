@@ -69,6 +69,30 @@ class TouchInjectionService : Service() {
                         
                         Log.d(TAG, "Received request to simulate tap at ($x,$y)")
                         simulateTap(x, y)
+                    } else if (gestureType == "swipe") {
+                        val direction = intent.getStringExtra("direction") ?: "left"
+                        Log.d(TAG, "Received request to simulate $direction swipe")
+                        
+                        // Use different coordinates based on direction
+                        var startX: Float
+                        var endX: Float
+                        val startY = 600f  // Middle of screen height
+                        val endY = 600f    // Keep Y position constant
+                        
+                        if (direction == "left") {
+                            // For swipe left, move from right to left
+                            startX = 900f
+                            endX = 300f
+                            Log.d(TAG, "Swipe LEFT - Will swipe from right to left: ($startX,$startY) to ($endX,$endY)")
+                        } else {
+                            // For swipe right, move from left to right
+                            startX = 300f
+                            endX = 900f
+                            Log.d(TAG, "Swipe RIGHT - Will swipe from left to right: ($startX,$startY) to ($endX,$endY)")
+                        }
+                        
+                        val duration = intent.getLongExtra("duration", 300L)
+                        simulateSwipe(startX, startY, endX, endY, duration)
                     }
                 }
             }

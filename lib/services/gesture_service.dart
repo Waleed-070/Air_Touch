@@ -17,13 +17,17 @@ typedef GestureActionCallback = void Function(
 class GestureService {
   bool isProcessing = false;
   // Replace hardcoded URL with dynamic configuration
-  String _serverUrl = 'http://192.168.1.18:8000/upload_frame';
+  String _serverUrl = 'http://192.168.30.187:8080/upload_frame';
   
   // Add server connectivity flags
   bool _serverConnectionLost = false;
-  int _consecutiveErrors = 0;
+  int _consecutiveErrors = 0; 
   int _maxConsecutiveErrors = 3;
   late Timer _reconnectTimer;
+  
+  // Add gesture debouncing to prevent multiple rapid triggers
+  final Map<String, DateTime> _lastGestureTime = {};
+  static const int _gestureCooldownMs = 2000; // 2 second cooldown between same gesture
   
   // Getter for server URL
   String get serverUrl => _serverUrl;
@@ -64,18 +68,41 @@ class GestureService {
       }
     } catch (e) {
       // Keep trying
+      print('Failed to ping server: $e');
     }
   }
   
   Future<void> _initServerUrl() async {
+    // List of common server URLs to try
+    final List<String> possibleUrls = [
+      'http://192.168.30.187:8080/upload_frame',  // Current IP
+      'http://192.168.1.10:8080/upload_frame',    // Alternative IP
+      'http://localhost:8080/upload_frame',       // Local machine
+      'http://127.0.0.1:8080/upload_frame',       // Loopback
+      'http://10.0.2.2:8080/upload_frame',        // Android emulator to host
+    ];
+    
+    // Add common network patterns
     try {
-      // Try to get network interfaces to determine local IP
+      // Add common IPs in the 192.168.30.x subnet
+      for (int i = 1; i < 255; i++) {
+        if (i % 10 == 0 || i == 187) {  // Check every 10th IP and specifically 187
+          possibleUrls.add('http://192.168.30.$i:8080/upload_frame');
+        }
+      }
+      
+      // Add common IPs in the 192.168.1.x subnet
+      for (int i = 1; i < 255; i++) {
+        if (i % 10 == 0) {
+          possibleUrls.add('http://192.168.1.$i:8080/upload_frame');
+        }
+      }
+      
       final interfaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
         includeLinkLocal: false,
       );
       
-      // Look for common local network adapters (non-loopback)
       for (var interface in interfaces) {
         for (var addr in interface.addresses) {
           // Skip loopback addresses
@@ -83,28 +110,35 @@ class GestureService {
               addr.address.startsWith('10.') || 
               addr.address.startsWith('172.')) {
             print('Detected local IP: ${addr.address}');
-            final newUrl = 'http://${addr.address}:8000/upload_frame';
-            
-            // Test if this server responds
-            try {
-              final testResponse = await http.get(
-                Uri.parse(newUrl.replaceAll('upload_frame', 'health')),
-              ).timeout(const Duration(seconds: 1));
-              
-              if (testResponse.statusCode == 200) {
-                updateServerUrl(newUrl);
-                print('Server auto-detected at: $newUrl');
-                return;
-              }
-            } catch (e) {
-              // Continue checking next address
-            }
+            possibleUrls.add('http://${addr.address}:8080/upload_frame');
           }
         }
       }
     } catch (e) {
       print('Error detecting network interfaces: $e');
     }
+    
+    // Try all possible URLs to find a working server
+    for (String url in possibleUrls) {
+      print('Trying server URL: $url');
+      try {
+        final testResponse = await http.get(
+          Uri.parse(url.replaceAll('upload_frame', 'health')),
+        ).timeout(const Duration(seconds: 1));
+        
+        if (testResponse.statusCode == 200) {
+          updateServerUrl(url);
+          print('Server auto-detected at: $url');
+          return;
+        }
+      } catch (e) {
+        // Continue checking next URL
+        print('Failed to connect to $url: $e');
+      }
+    }
+    
+    // If none of the URLs worked, keep the default
+    print('Could not auto-detect server. Using default: $_serverUrl');
   }
   
   // Logging control - set to false to reduce console output for better performance
@@ -254,7 +288,19 @@ class GestureService {
 
   void _handleGesture(String gesture, double confidence, bool inBackground,
       GestureActionCallback onGestureAction) {
-    const double threshold = 0.70; // 70% confidence threshold
+    const double standardThreshold = 0.70; // 70% confidence threshold for most gestures
+    
+    // Set gesture-specific thresholds
+    double threshold;
+    if (gesture == 'play_pause') {
+      threshold = 0.15; // Much lower threshold specifically for play_pause gesture (15%)
+    } else if (gesture == 'forward') {
+      threshold = 0.20; // Lower threshold for forward gesture (20%)
+    } else if (gesture == 'backward') {
+      threshold = 0.20; // Lower threshold for backward gesture (20%)
+    } else {
+      threshold = standardThreshold;
+    }
 
     // Only proceed if confidence is above threshold
     if (confidence <= threshold) {
@@ -263,6 +309,24 @@ class GestureService {
       }
       return;
     }
+    
+    // Check for debouncing - don't trigger the same gesture too frequently
+    final now = DateTime.now();
+    final lastTime = _lastGestureTime[gesture];
+    
+    if (lastTime != null) {
+      final timeSinceLastTrigger = now.difference(lastTime).inMilliseconds;
+      if (timeSinceLastTrigger < _gestureCooldownMs) {
+        // Skip this gesture as it's too soon after the last one
+        if (verboseLogging) {
+          print('🕒 $gesture gesture debounced: ${timeSinceLastTrigger}ms < ${_gestureCooldownMs}ms cooldown');
+        }
+        return;
+      }
+    }
+    
+    // Update the last trigger time for this gesture
+    _lastGestureTime[gesture] = now;
     
     // Log the detected gesture
     String emoji = '✓'; // Default emoji
@@ -282,6 +346,18 @@ class GestureService {
         break;
       case 'thumbs_down':
         emoji = '👎';
+        break;
+      case 'fist':
+        emoji = '✊';
+        break;
+      case 'play_pause':
+        emoji = '⏯️';
+        break;
+      case 'forward':
+        emoji = '⏭️';
+        break;
+      case 'backward':
+        emoji = '⏮️';
         break;
     }
     

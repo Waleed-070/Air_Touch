@@ -26,12 +26,16 @@ import android.os.Looper
 import android.app.AlertDialog
 import android.provider.Settings
 import android.content.DialogInterface
-import android.text.TextUtils
+import android.media.AudioManager
+import android.view.KeyEvent
+import android.os.SystemClock
+import io.flutter.embedding.engine.plugins.FlutterPlugin
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.example.app/instagram"
     private val BACKGROUND_CHANNEL = "com.example.app/background"
     private val SYSTEM_CHANNEL = "com.example.app/system"
+    private val MEDIA_CONTROL_CHANNEL = "com.example.app/media_control"
     private val TAG = "InstagramLauncher"
     private val FOREGROUND_SERVICE_ID = 1001
     private val NOTIFICATION_CHANNEL_ID = "air_touch_background"
@@ -460,8 +464,191 @@ class MainActivity: FlutterActivity() {
                         
                         result.success(true)
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error sending broadcast: ${e.message}")
+                        Log.e(TAG, "Error broadcasting: ${e.message}")
                         result.error("BROADCAST_ERROR", "Could not send broadcast", e.message)
+                    }
+                }
+                "mediaPlayPause" -> {
+                    try {
+                        val inBackground = call.argument<Boolean>("inBackground") ?: false
+                        Log.d(TAG, "Background channel: Media play/pause requested (inBackground=$inBackground)")
+                        
+                        // Use the enhanced media key event helper
+                        val success = sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                        
+                        Log.d(TAG, "Media play/pause result: $success")
+                        result.success(success)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error with media control: ${e.message}")
+                        e.printStackTrace()
+                        result.error("MEDIA_CONTROL_ERROR", "Failed to control media", e.message)
+                    }
+                }
+                "mediaSkipNext" -> {
+                    try {
+                        val inBackground = call.argument<Boolean>("inBackground") ?: false
+                        Log.d(TAG, "Background channel: Media skip next requested (inBackground=$inBackground)")
+                        
+                        // Use the enhanced media key event helper
+                        val success = sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_NEXT)
+                        
+                        Log.d(TAG, "Media next result: $success")
+                        result.success(success)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error with next track control: ${e.message}")
+                        e.printStackTrace()
+                        result.error("MEDIA_CONTROL_ERROR", "Failed to skip to next track", e.message)
+                    }
+                }
+                "mediaSkipPrevious" -> {
+                    try {
+                        val inBackground = call.argument<Boolean>("inBackground") ?: false
+                        Log.d(TAG, "Background channel: Media skip previous requested (inBackground=$inBackground)")
+                        
+                        // Try multiple approaches to maximize compatibility
+                        // 1. First try with our robust media key event handler
+                        val success = sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                        
+                        // 2. If that didn't work, try with direct MediaControlPlugin approach
+                        if (!success) {
+                            Log.d(TAG, "Primary method failed, trying backup direct approach")
+                            
+                            // Create and initialize the plugin manually
+                            val mediaPlugin = MediaControlPlugin()
+                            
+                            // Initialize the plugin with context
+                            mediaPlugin.onAttachedToEngine(context, flutterEngine.dartExecutor.binaryMessenger)
+                            
+                            // Call the public method to skip to previous track
+                            val backupSuccess = mediaPlugin.simulateMediaPreviousButtonPress()
+                            
+                            // Report success from either method
+                            result.success(success || backupSuccess)
+                        } else {
+                            result.success(true)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error with previous track control: ${e.message}")
+                        e.printStackTrace()
+                        result.error("MEDIA_CONTROL_ERROR", "Failed to skip to previous track", e.message)
+                    }
+                }
+                "directMediaPrevious" -> {
+                    try {
+                        val inBackground = call.argument<Boolean>("inBackground") ?: false
+                        val forceDoublePress = call.argument<Boolean>("forceDoublePress") ?: false
+                        val highPriority = call.argument<Boolean>("highPriority") ?: false
+                        
+                        Log.d(TAG, "Background channel: Direct media previous requested (inBackground=$inBackground, forceDoublePress=$forceDoublePress)")
+                        
+                        var success = false
+                        
+                        // Method 1: Using AudioManager with even stronger timing
+                        try {
+                            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                            
+                            if (forceDoublePress) {
+                                // Double press method for better compatibility with many music apps
+                                // First press
+                                val now1 = SystemClock.uptimeMillis()
+                                val eventDown1 = KeyEvent(now1, now1, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                                audioManager.dispatchMediaKeyEvent(eventDown1)
+                                Thread.sleep(300)
+                                
+                                val eventUp1 = KeyEvent(now1, now1, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                                audioManager.dispatchMediaKeyEvent(eventUp1)
+                                
+                                // Delay between presses
+                                Thread.sleep(400)
+                                
+                                // Second press
+                                val now2 = SystemClock.uptimeMillis()
+                                val eventDown2 = KeyEvent(now2, now2, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                                audioManager.dispatchMediaKeyEvent(eventDown2)
+                                Thread.sleep(300)
+                                
+                                val eventUp2 = KeyEvent(now2, now2, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                                audioManager.dispatchMediaKeyEvent(eventUp2)
+                                
+                                Log.d(TAG, "Double-press method completed for media previous")
+                            } else {
+                                // Standard single press with long delay
+                                val now = SystemClock.uptimeMillis()
+                                val eventDown = KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                                val eventUp = KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                                
+                                // Send DOWN event
+                                audioManager.dispatchMediaKeyEvent(eventDown)
+                                
+                                // Long press to help device recognize the key event
+                                Thread.sleep(500)
+                                
+                                // Send UP event
+                                audioManager.dispatchMediaKeyEvent(eventUp)
+                                
+                                Log.d(TAG, "Single long-press method completed for media previous")
+                            }
+                            success = true
+                        } catch (e: Exception) {
+                            Log.e(TAG, "AudioManager method failed: ${e.message}")
+                            e.printStackTrace()
+                        }
+                        
+                        // Method 2: Legacy Intent-based method
+                        try {
+                            // Send media button intent first
+                            val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                            val keyEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                            intent.putExtra(Intent.EXTRA_KEY_EVENT, keyEvent)
+                            sendOrderedBroadcast(intent, null)
+                            
+                            Thread.sleep(300)
+                            
+                            // Then send direct music service command
+                            val musicIntent = Intent("com.android.music.musicservicecommand")
+                            musicIntent.putExtra("command", "previous")
+                            sendBroadcast(musicIntent)
+                            
+                            // Send UP event
+                            val upIntent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                            val upEvent = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                            upIntent.putExtra(Intent.EXTRA_KEY_EVENT, upEvent)
+                            sendOrderedBroadcast(upIntent, null)
+                            
+                            Log.d(TAG, "Intent-based method completed for media previous")
+                            success = true
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Intent method failed: ${e.message}")
+                            e.printStackTrace()
+                        }
+                        
+                        // Method 3: Service-based approach
+                        try {
+                            // Send the gesture to background service for redundancy
+                            val serviceIntent = Intent(this, CameraBackgroundService::class.java)
+                            serviceIntent.putExtra("gestureDetection", true)
+                            serviceIntent.putExtra("gesture", "backward")
+                            serviceIntent.putExtra("confidence", 0.95) // High confidence
+                            serviceIntent.putExtra("highPriority", highPriority)
+                            
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(serviceIntent)
+                            } else {
+                                startService(serviceIntent)
+                            }
+                            
+                            Log.d(TAG, "Service-based command sent for media previous")
+                            success = true
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Service method failed: ${e.message}")
+                            e.printStackTrace()
+                        }
+                        
+                        result.success(success)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error with direct media previous control: ${e.message}")
+                        e.printStackTrace()
+                        result.error("MEDIA_CONTROL_ERROR", "Failed to execute direct previous command", e.message)
                     }
                 }
                 "sendGestureToService" -> {
@@ -550,6 +737,35 @@ class MainActivity: FlutterActivity() {
                     } catch (e: Exception) {
                         logError("Error simulating scroll: ${e.message}")
                         result.error("ERROR", "Failed to simulate scroll", e.toString())
+                    }
+                }
+                "simulateSwipe" -> {
+                    try {
+                        val direction = call.argument<String>("direction") ?: "left"
+                        val distance = call.argument<Double>("distance")?.toFloat() ?: 300f
+                        val fromGesture = call.argument<Boolean>("fromGesture") ?: true
+                        val inBackground = call.argument<Boolean>("inBackground") ?: false
+                        
+                        logInfo("Simulating horizontal swipe: direction=$direction, distance=$distance")
+                        val success = sendHorizontalSwipeBroadcast(direction, distance)
+                        result.success(success)
+                    } catch (e: Exception) {
+                        logError("Error simulating horizontal swipe: ${e.message}")
+                        result.error("ERROR", "Failed to simulate horizontal swipe", e.toString())
+                    }
+                }
+                "simulateTouchSequence" -> {
+                    try {
+                        val actions = call.argument<List<Map<String, Any>>>("actions") ?: emptyList()
+                        val duration = call.argument<Int>("duration") ?: 200
+                        val inBackground = call.argument<Boolean>("inBackground") ?: false
+                        
+                        logInfo("Simulating touch sequence with ${actions.size} actions, duration=$duration ms")
+                        val success = simulateTouchSequence(actions, duration, inBackground)
+                        result.success(success)
+                    } catch (e: Exception) {
+                        logError("Error simulating touch sequence: ${e.message}")
+                        result.error("ERROR", "Failed to simulate touch sequence", e.toString())
                     }
                 }
                 "pressHomeButton" -> {
@@ -682,6 +898,9 @@ class MainActivity: FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        
+        flutterEngine.plugins.add(VolumeControlPlugin())
+        flutterEngine.plugins.add(MediaControlPlugin())
     }
     
     private fun registerCallDetectionPlugin(messenger: BinaryMessenger, channel: MethodChannel) {
@@ -1171,6 +1390,97 @@ class MainActivity: FlutterActivity() {
         }
     }
     
+    // Method to send a broadcast to simulate horizontal swipe
+    private fun sendHorizontalSwipeBroadcast(direction: String, distance: Float): Boolean {
+        logInfo("Sending horizontal swipe broadcast: direction=$direction, distance=$distance")
+        try {
+            // Create intent for accessibility service
+            val accessIntent = Intent("com.example.front_end.PERFORM_GLOBAL_ACTION")
+            accessIntent.putExtra("action", "swipe")
+            accessIntent.putExtra("direction", direction)
+            accessIntent.putExtra("distance", distance)
+            context.sendBroadcast(accessIntent)
+            
+            // Create a secondary intent for TouchInjectionService as fallback
+            val touchIntent = Intent("com.example.front_end.SIMULATE_GESTURE")
+            touchIntent.putExtra("gestureType", "swipe")
+            touchIntent.putExtra("direction", direction)
+            touchIntent.putExtra("distance", distance)
+            context.sendBroadcast(touchIntent)
+            
+            // Also use scroll gesture service directly for swipe
+            val scrollIntent = Intent("com.example.front_end.GESTURE_SCROLL")
+            
+            // Set up swipe coordinates based on direction
+            // For swipe left, we move finger from right to left on screen
+            // For swipe right, we move finger from left to right
+            if (direction == "left") {
+                // For swipe left, start on right side and move to left
+                scrollIntent.putExtra("startX", 900f)
+                scrollIntent.putExtra("startY", 600f)
+                scrollIntent.putExtra("endX", 300f)
+                scrollIntent.putExtra("endY", 600f)
+                scrollIntent.putExtra("direction", "left")
+            } else {
+                // For swipe right, start on left side and move to right
+                scrollIntent.putExtra("startX", 300f)
+                scrollIntent.putExtra("startY", 600f)
+                scrollIntent.putExtra("endX", 900f)
+                scrollIntent.putExtra("endY", 600f)
+                scrollIntent.putExtra("direction", "right")
+            }
+            scrollIntent.putExtra("duration", 300L)
+            context.sendBroadcast(scrollIntent)
+            
+            logInfo("Horizontal swipe broadcasts sent successfully for $direction swipe")
+            return true
+        } catch (e: Exception) {
+            logError("Failed to send horizontal swipe broadcast: ${e.message}")
+            return false
+        }
+    }
+    
+    // Method to simulate a touch sequence
+    private fun simulateTouchSequence(actions: List<Map<String, Any>>, duration: Int, inBackground: Boolean): Boolean {
+        logInfo("Simulating touch sequence with ${actions.size} actions")
+        
+        try {
+            // Extract coordinates from first and last actions for a simplified gesture
+            if (actions.size >= 2) {
+                val firstAction = actions.first()
+                val lastAction = actions.last()
+                
+                val startX = (firstAction["x"] as? Number)?.toFloat() ?: 0f
+                val startY = (firstAction["y"] as? Number)?.toFloat() ?: 0f
+                val endX = (lastAction["x"] as? Number)?.toFloat() ?: 0f
+                val endY = (lastAction["y"] as? Number)?.toFloat() ?: 0f
+                
+                logInfo("Touch sequence from ($startX,$startY) to ($endX,$endY)")
+                
+                // Determine if this is a horizontal or vertical gesture
+                val isHorizontal = Math.abs(endX - startX) > Math.abs(endY - startY)
+                
+                if (isHorizontal) {
+                    // Horizontal swipe - determine direction
+                    val direction = if (endX > startX) "right" else "left"
+                    logInfo("Detected horizontal swipe: $direction")
+                    return sendHorizontalSwipeBroadcast(direction, Math.abs(endX - startX))
+                } else {
+                    // Vertical scroll - determine direction
+                    val direction = if (endY > startY) "down" else "up"
+                    logInfo("Detected vertical scroll: $direction")
+                    return sendScrollBroadcast(direction, Math.abs(endY - startY))
+                }
+            } else {
+                logError("Not enough actions for a touch sequence")
+                return false
+            }
+        } catch (e: Exception) {
+            logError("Error in touch sequence simulation: ${e.message}")
+            return false
+        }
+    }
+    
     // Press home button via accessibility service
     private fun pressHomeButton(): Boolean {
         logInfo("Sending home button press broadcast")
@@ -1301,6 +1611,155 @@ class MainActivity: FlutterActivity() {
             true
         } catch (e: PackageManager.NameNotFoundException) {
             false
+        }
+    }
+    
+    // Enhanced media key event sending with multiple fallback methods
+    private fun sendMediaKeyEvent(keyCode: Int): Boolean {
+        try {
+            Log.d(TAG, "Sending media key event for keyCode: $keyCode")
+            
+            // Create key events
+            val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, keyCode)
+            val eventUp = KeyEvent(KeyEvent.ACTION_UP, keyCode)
+            
+            var success = false
+            
+            // Method 1: Using AudioManager with strong events
+            try {
+                // Create stronger key event with system timestamp and repeat count = 0
+                val now = SystemClock.uptimeMillis()
+                val strongEventDown = KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0)
+                val strongEventUp = KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0)
+                
+                val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                
+                // Send DOWN event
+                Log.d(TAG, "Sending STRONG key DOWN event via AudioManager")
+                audioManager.dispatchMediaKeyEvent(strongEventDown)
+                
+                // Longer delay between DOWN and UP - critical for reliability
+                Thread.sleep(300)
+                
+                // Send UP event
+                Log.d(TAG, "Sending STRONG key UP event via AudioManager")
+                audioManager.dispatchMediaKeyEvent(strongEventUp)
+                
+                Log.d(TAG, "STRONG Media key event sent successfully via AudioManager")
+                success = true
+            } catch (e: Exception) {
+                Log.e(TAG, "STRONG AudioManager method failed: ${e.message}")
+                e.printStackTrace()
+            }
+            
+            // Method 2: Regular AudioManager as fallback
+            if (!success) {
+                try {
+                    Log.d(TAG, "Trying regular AudioManager method")
+                    val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                    
+                    // Send DOWN event
+                    audioManager.dispatchMediaKeyEvent(eventDown)
+                    
+                    // Small delay between DOWN and UP
+                    Thread.sleep(300)
+                    
+                    // Send UP event
+                    audioManager.dispatchMediaKeyEvent(eventUp)
+                    
+                    Log.d(TAG, "Regular AudioManager method succeeded")
+                    success = true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Regular AudioManager method failed: ${e.message}")
+                    e.printStackTrace()
+                }
+            }
+            
+            // Method 3: Intent filter method
+            if (!success) {
+                try {
+                    Log.d(TAG, "Trying broadcast intent for media key")
+                    val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                    
+                    // Send DOWN event
+                    intent.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                    sendOrderedBroadcast(intent, null)
+                    
+                    // Small delay
+                    Thread.sleep(300)
+                    
+                    // Send UP event
+                    intent.putExtra(Intent.EXTRA_KEY_EVENT, eventUp)
+                    sendOrderedBroadcast(intent, null)
+                    
+                    Log.d(TAG, "Media key event sent via broadcast intent")
+                    success = true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Broadcast intent method failed: ${e.message}")
+                    e.printStackTrace()
+                }
+            }
+            
+            // Method 4: Try the deprecated MUSIC_PLAYER intent approach
+            if (!success && keyCode == KeyEvent.KEYCODE_MEDIA_NEXT) {
+                try {
+                    Log.d(TAG, "Trying MUSIC_PLAYER next intent")
+                    val i = Intent("android.intent.action.MEDIA_BUTTON")
+                    i.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                    sendOrderedBroadcast(i, null)
+                    
+                    Thread.sleep(300)
+                    
+                    val musicIntent = Intent("com.android.music.musicservicecommand")
+                    musicIntent.putExtra("command", "next")
+                    sendBroadcast(musicIntent)
+                    
+                    Log.d(TAG, "MUSIC_PLAYER next intent sent")
+                    success = true
+                } catch (e: Exception) {
+                    Log.e(TAG, "MUSIC_PLAYER next intent failed: ${e.message}")
+                    e.printStackTrace()
+                }
+            } else if (!success && keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS) {
+                try {
+                    Log.d(TAG, "Trying MUSIC_PLAYER previous intent")
+                    val i = Intent("android.intent.action.MEDIA_BUTTON")
+                    i.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                    sendOrderedBroadcast(i, null)
+                    
+                    Thread.sleep(300)
+                    
+                    val musicIntent = Intent("com.android.music.musicservicecommand")
+                    musicIntent.putExtra("command", "previous")
+                    sendBroadcast(musicIntent)
+                    
+                    Log.d(TAG, "MUSIC_PLAYER previous intent sent")
+                    success = true
+                } catch (e: Exception) {
+                    Log.e(TAG, "MUSIC_PLAYER previous intent failed: ${e.message}")
+                    e.printStackTrace()
+                }
+            }
+            
+            // Method 5: Try using Instrumentation
+            if (!success) {
+                try {
+                    Log.d(TAG, "Trying Instrumentation method for media key")
+                    val inst = android.app.Instrumentation()
+                    inst.sendKeyDownUpSync(keyCode)
+                    Log.d(TAG, "Media key sent via Instrumentation")
+                    success = true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Instrumentation method failed: ${e.message}")
+                    e.printStackTrace()
+                }
+            }
+            
+            return success
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending media key event: ${e.message}")
+            e.printStackTrace()
+            return false
         }
     }
 }

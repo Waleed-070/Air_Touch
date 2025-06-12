@@ -21,6 +21,9 @@ import android.content.IntentFilter
 import java.util.concurrent.TimeUnit
 import android.content.ComponentName
 import android.app.PendingIntent
+import android.media.AudioManager
+import android.view.KeyEvent
+import android.os.SystemClock
 
 class CameraBackgroundService : Service() {
     private val FOREGROUND_SERVICE_ID = 1001
@@ -91,6 +94,256 @@ class CameraBackgroundService : Service() {
                             } else {
                                 Log.d(TAG, "Instagram launch on cooldown, ignoring broadcast")
                             }
+                        } 
+                        // Add special handling for play_pause gesture with low threshold
+                        else if (gesture == "play_pause" && confidence > 0.15) {
+                            Log.d(TAG, "Play/Pause gesture detected in background, controlling media")
+                            
+                            // Simulate media button press
+                            try {
+                                val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                                val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                                val eventUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                                
+                                // Send DOWN event
+                                audioManager.dispatchMediaKeyEvent(eventDown)
+                                
+                                // Small delay between DOWN and UP (more realistic)
+                                Thread.sleep(50)
+                                
+                                // Send UP event
+                                audioManager.dispatchMediaKeyEvent(eventUp)
+                                
+                                Log.d(TAG, "Media button press simulated successfully in background")
+                                
+                                // Exit immediately to prevent multiple activations of the same gesture
+                                return@onReceive
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error controlling media in background: ${e.message}")
+                                
+                                // Fallback: broadcast intent
+                                try {
+                                    val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                                    val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                                    intent.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                                    sendOrderedBroadcast(intent, null)
+                                    
+                                    Thread.sleep(50)
+                                    
+                                    val eventUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                                    intent.putExtra(Intent.EXTRA_KEY_EVENT, eventUp)
+                                    sendOrderedBroadcast(intent, null)
+                                    Log.d(TAG, "Media button press broadcast sent as fallback")
+                                    
+                                    // Exit immediately to prevent multiple activations of the same gesture
+                                    return@onReceive
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Fallback media control also failed: ${e.message}")
+                                }
+                            }
+                        } else if (gesture == "forward" && confidence > 0.20) {
+                            // Special handling for forward with lower threshold
+                            Log.d(TAG, "$TAG: Forward gesture detected with confidence $confidence")
+                            
+                            // Try multiple approaches to ensure the command gets through
+                            var success = false
+                            
+                            // 1. Try direct AudioManager approach with strong KeyEvents
+                            try {
+                                val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                                val now = android.os.SystemClock.uptimeMillis()
+                                val eventDown = KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_NEXT, 0)
+                                val eventUp = KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_NEXT, 0)
+                                
+                                // Send DOWN event
+                                Log.d(TAG, "$TAG: Sending STRONG media NEXT key DOWN event")
+                                audioManager.dispatchMediaKeyEvent(eventDown)
+                                
+                                // Longer delay between DOWN and UP - critical for reliability
+                                Thread.sleep(300)
+                                
+                                // Send UP event
+                                Log.d(TAG, "$TAG: Sending STRONG media NEXT key UP event")
+                                audioManager.dispatchMediaKeyEvent(eventUp)
+                                
+                                Log.d(TAG, "$TAG: Media next button press simulated successfully")
+                                success = true
+                            } catch (e: Exception) {
+                                Log.e(TAG, "$TAG: Error controlling media next: ${e.message}")
+                                e.printStackTrace()
+                            }
+                            
+                            // 2. Try the legacy MUSIC_PLAYER intent approach which works on many devices
+                            if (!success) {
+                                try {
+                                    Log.d(TAG, "$TAG: Trying MUSIC_PLAYER next intent")
+                                    
+                                    // First send a media button event
+                                    val i = Intent("android.intent.action.MEDIA_BUTTON")
+                                    val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_NEXT)
+                                    i.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                                    sendOrderedBroadcast(i, null)
+                                    
+                                    Thread.sleep(300)
+                                    
+                                    // Then send the direct music service command
+                                    val musicIntent = Intent("com.android.music.musicservicecommand")
+                                    musicIntent.putExtra("command", "next")
+                                    sendBroadcast(musicIntent)
+                                    
+                                    Log.d(TAG, "$TAG: MUSIC_PLAYER next intent sent")
+                                    success = true
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "$TAG: MUSIC_PLAYER next intent failed: ${e.message}")
+                                    e.printStackTrace()
+                                }
+                            }
+                            
+                            // 3. Try broadcast intent as last fallback
+                            if (!success) {
+                                try {
+                                    Log.d(TAG, "$TAG: Trying broadcast intent as fallback")
+                                    val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_NEXT)
+                                    val eventUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_NEXT)
+                                    
+                                    val mediaIntent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                                    mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                                    sendOrderedBroadcast(mediaIntent, null)
+                                    
+                                    Thread.sleep(300)
+                                    
+                                    mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, eventUp)
+                                    sendOrderedBroadcast(mediaIntent, null)
+                                    Log.d(TAG, "$TAG: Media next button press broadcast sent as fallback")
+                                    success = true
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "$TAG: Fallback media next control also failed: ${e.message}")
+                                    e.printStackTrace()
+                                }
+                            }
+                            
+                            // Process command immediately and continue
+                        } else if (gesture == "backward" && confidence > 0.20) {
+                            // Special handling for backward with lower threshold
+                            Log.d(TAG, "$TAG: Backward gesture detected with confidence $confidence")
+                            
+                            // Try multiple approaches to ensure the command gets through
+                            var success = false
+                            
+                            // 1. Try direct AudioManager approach with strong KeyEvents
+                            try {
+                                val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                                val now = android.os.SystemClock.uptimeMillis()
+                                val eventDown = KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                                val eventUp = KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                                
+                                // Send DOWN event
+                                Log.d(TAG, "$TAG: Sending STRONG media PREVIOUS key DOWN event")
+                                audioManager.dispatchMediaKeyEvent(eventDown)
+                                
+                                // Use an even longer delay between DOWN and UP for backward - critical for reliability
+                                Thread.sleep(400)  // Longer delay for backward, which is often less responsive
+                                
+                                // Send UP event
+                                Log.d(TAG, "$TAG: Sending STRONG media PREVIOUS key UP event")
+                                audioManager.dispatchMediaKeyEvent(eventUp)
+                                
+                                Log.d(TAG, "$TAG: Media previous button press simulated successfully")
+                                success = true
+                            } catch (e: Exception) {
+                                Log.e(TAG, "$TAG: Error controlling media previous: ${e.message}")
+                                e.printStackTrace()
+                            }
+                            
+                            // 2. Try the legacy MUSIC_PLAYER intent approach which works on many devices
+                            // Use this even if the first method succeeded for better reliability
+                            try {
+                                Log.d(TAG, "$TAG: Trying MUSIC_PLAYER previous intent")
+                                
+                                // First send a media button event with longer press duration
+                                val i = Intent("android.intent.action.MEDIA_BUTTON")
+                                val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                                i.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                                sendOrderedBroadcast(i, null)
+                                
+                                Thread.sleep(400)  // Longer delay for backward, which is often less responsive
+                                
+                                // Then send the direct music service command
+                                val musicIntent = Intent("com.android.music.musicservicecommand")
+                                musicIntent.putExtra("command", "previous")
+                                sendBroadcast(musicIntent)
+                                
+                                // Also send UP event
+                                val eventUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                                i.putExtra(Intent.EXTRA_KEY_EVENT, eventUp)
+                                sendOrderedBroadcast(i, null)
+                                
+                                Log.d(TAG, "$TAG: MUSIC_PLAYER previous intent sent")
+                                success = true
+                            } catch (e: Exception) {
+                                Log.e(TAG, "$TAG: MUSIC_PLAYER previous intent failed: ${e.message}")
+                                e.printStackTrace()
+                            }
+                            
+                            // 3. Try double-press approach (many music apps need double press for previous)
+                            if (!success) {
+                                try {
+                                    Log.d(TAG, "$TAG: Trying double-press for previous track")
+                                    
+                                    // First press
+                                    val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                                    val now = android.os.SystemClock.uptimeMillis()
+                                    val eventDown1 = KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                                    val eventUp1 = KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                                    
+                                    audioManager.dispatchMediaKeyEvent(eventDown1)
+                                    Thread.sleep(200)
+                                    audioManager.dispatchMediaKeyEvent(eventUp1)
+                                    
+                                    // Short delay between presses
+                                    Thread.sleep(300)
+                                    
+                                    // Second press
+                                    val later = android.os.SystemClock.uptimeMillis()
+                                    val eventDown2 = KeyEvent(later, later, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                                    val eventUp2 = KeyEvent(later, later, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                                    
+                                    audioManager.dispatchMediaKeyEvent(eventDown2)
+                                    Thread.sleep(200)
+                                    audioManager.dispatchMediaKeyEvent(eventUp2)
+                                    
+                                    Log.d(TAG, "$TAG: Double-press for previous track completed")
+                                    success = true
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "$TAG: Double-press failed: ${e.message}")
+                                    e.printStackTrace()
+                                }
+                            }
+                            
+                            // 4. Try broadcast intent as last fallback
+                            if (!success) {
+                                try {
+                                    Log.d(TAG, "$TAG: Trying broadcast intent as fallback")
+                                    val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                                    val eventUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                                    
+                                    val mediaIntent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                                    mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                                    sendOrderedBroadcast(mediaIntent, null)
+                                    
+                                    Thread.sleep(400)  // Longer delay for better reliability
+                                    
+                                    mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, eventUp)
+                                    sendOrderedBroadcast(mediaIntent, null)
+                                    Log.d(TAG, "$TAG: Media previous button press broadcast sent as fallback")
+                                    success = true
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "$TAG: Fallback media previous control also failed: ${e.message}")
+                                    e.printStackTrace()
+                                }
+                            }
+                            
+                            // Process command immediately and continue
                         }
                     }
                 }
@@ -229,6 +482,253 @@ class CameraBackgroundService : Service() {
                 }
             } else if (gesture == "open_app") {
                 Log.d(TAG, "$logPrefix: Open app gesture detected but confidence too low: $confidence < 0.70")
+            } else if (gesture == "play_pause" && confidence > 0.15) {
+                // Special handling for play/pause with lower threshold
+                Log.d(TAG, "$logPrefix: Play/Pause gesture detected with confidence $confidence")
+                
+                // Simulate media button press
+                try {
+                    val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                    val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                    val eventUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                    
+                    // Send DOWN event
+                    audioManager.dispatchMediaKeyEvent(eventDown)
+                    
+                    // Small delay between DOWN and UP (more realistic)
+                    Thread.sleep(50)
+                    
+                    // Send UP event
+                    audioManager.dispatchMediaKeyEvent(eventUp)
+                    
+                    Log.d(TAG, "$logPrefix: Media button press simulated successfully")
+                    
+                    // Process command immediately and continue
+                } catch (e: Exception) {
+                    Log.e(TAG, "$logPrefix: Error controlling media: ${e.message}")
+                    
+                    // Fallback: broadcast intent
+                    try {
+                        val mediaIntent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                        val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                        mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                        sendOrderedBroadcast(mediaIntent, null)
+                        
+                        Thread.sleep(50)
+                        
+                        val eventUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                        mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, eventUp)
+                        sendOrderedBroadcast(mediaIntent, null)
+                        Log.d(TAG, "$logPrefix: Media button press broadcast sent as fallback")
+                        
+                        // Process command immediately and continue
+                    } catch (e: Exception) {
+                        Log.e(TAG, "$logPrefix: Fallback media control also failed: ${e.message}")
+                    }
+                }
+            } else if (gesture == "forward" && confidence > 0.20) {
+                // Special handling for forward with lower threshold
+                Log.d(TAG, "$logPrefix: Forward gesture detected with confidence $confidence")
+                
+                // Try multiple approaches to ensure the command gets through
+                var success = false
+                
+                // 1. Try direct AudioManager approach with strong KeyEvents
+                try {
+                    val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                    val now = android.os.SystemClock.uptimeMillis()
+                    val eventDown = KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_NEXT, 0)
+                    val eventUp = KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_NEXT, 0)
+                    
+                    // Send DOWN event
+                    Log.d(TAG, "$logPrefix: Sending STRONG media NEXT key DOWN event")
+                    audioManager.dispatchMediaKeyEvent(eventDown)
+                    
+                    // Longer delay between DOWN and UP - critical for reliability
+                    Thread.sleep(300)
+                    
+                    // Send UP event
+                    Log.d(TAG, "$logPrefix: Sending STRONG media NEXT key UP event")
+                    audioManager.dispatchMediaKeyEvent(eventUp)
+                    
+                    Log.d(TAG, "$logPrefix: Media next button press simulated successfully")
+                    success = true
+                } catch (e: Exception) {
+                    Log.e(TAG, "$logPrefix: Error controlling media next: ${e.message}")
+                    e.printStackTrace()
+                }
+                
+                // 2. Try the legacy MUSIC_PLAYER intent approach which works on many devices
+                if (!success) {
+                    try {
+                        Log.d(TAG, "$logPrefix: Trying MUSIC_PLAYER next intent")
+                        
+                        // First send a media button event
+                        val i = Intent("android.intent.action.MEDIA_BUTTON")
+                        val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_NEXT)
+                        i.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                        sendOrderedBroadcast(i, null)
+                        
+                        Thread.sleep(300)
+                        
+                        // Then send the direct music service command
+                        val musicIntent = Intent("com.android.music.musicservicecommand")
+                        musicIntent.putExtra("command", "next")
+                        sendBroadcast(musicIntent)
+                        
+                        Log.d(TAG, "$logPrefix: MUSIC_PLAYER next intent sent")
+                        success = true
+                    } catch (e: Exception) {
+                        Log.e(TAG, "$logPrefix: MUSIC_PLAYER next intent failed: ${e.message}")
+                        e.printStackTrace()
+                    }
+                }
+                
+                // 3. Try broadcast intent as last fallback
+                if (!success) {
+                    try {
+                        Log.d(TAG, "$logPrefix: Trying broadcast intent as fallback")
+                        val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_NEXT)
+                        val eventUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_NEXT)
+                        
+                        val mediaIntent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                        mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                        sendOrderedBroadcast(mediaIntent, null)
+                        
+                        Thread.sleep(300)
+                        
+                        mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, eventUp)
+                        sendOrderedBroadcast(mediaIntent, null)
+                        Log.d(TAG, "$logPrefix: Media next button press broadcast sent as fallback")
+                        success = true
+                    } catch (e: Exception) {
+                        Log.e(TAG, "$logPrefix: Fallback media next control also failed: ${e.message}")
+                        e.printStackTrace()
+                    }
+                }
+                
+                // Process command immediately and continue
+            } else if (gesture == "backward" && confidence > 0.20) {
+                // Special handling for backward with lower threshold
+                Log.d(TAG, "$logPrefix: Backward gesture detected with confidence $confidence")
+                
+                // Try multiple approaches to ensure the command gets through
+                var success = false
+                
+                // 1. Try direct AudioManager approach with strong KeyEvents
+                try {
+                    val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                    val now = android.os.SystemClock.uptimeMillis()
+                    val eventDown = KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                    val eventUp = KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                    
+                    // Send DOWN event
+                    Log.d(TAG, "$logPrefix: Sending STRONG media PREVIOUS key DOWN event")
+                    audioManager.dispatchMediaKeyEvent(eventDown)
+                    
+                    // Use an even longer delay between DOWN and UP for backward - critical for reliability
+                    Thread.sleep(400)  // Longer delay for backward, which is often less responsive
+                    
+                    // Send UP event
+                    Log.d(TAG, "$logPrefix: Sending STRONG media PREVIOUS key UP event")
+                    audioManager.dispatchMediaKeyEvent(eventUp)
+                    
+                    Log.d(TAG, "$logPrefix: Media previous button press simulated successfully")
+                    success = true
+                } catch (e: Exception) {
+                    Log.e(TAG, "$logPrefix: Error controlling media previous: ${e.message}")
+                    e.printStackTrace()
+                }
+                
+                // 2. Try the legacy MUSIC_PLAYER intent approach which works on many devices
+                // Use this even if the first method succeeded for better reliability
+                try {
+                    Log.d(TAG, "$logPrefix: Trying MUSIC_PLAYER previous intent")
+                    
+                    // First send a media button event with longer press duration
+                    val i = Intent("android.intent.action.MEDIA_BUTTON")
+                    val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                    i.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                    sendOrderedBroadcast(i, null)
+                    
+                    Thread.sleep(400)  // Longer delay for backward, which is often less responsive
+                    
+                    // Then send the direct music service command
+                    val musicIntent = Intent("com.android.music.musicservicecommand")
+                    musicIntent.putExtra("command", "previous")
+                    sendBroadcast(musicIntent)
+                    
+                    // Also send UP event
+                    val eventUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                    i.putExtra(Intent.EXTRA_KEY_EVENT, eventUp)
+                    sendOrderedBroadcast(i, null)
+                    
+                    Log.d(TAG, "$logPrefix: MUSIC_PLAYER previous intent sent")
+                    success = true
+                } catch (e: Exception) {
+                    Log.e(TAG, "$logPrefix: MUSIC_PLAYER previous intent failed: ${e.message}")
+                    e.printStackTrace()
+                }
+                
+                // 3. Try double-press approach (many music apps need double press for previous)
+                if (!success) {
+                    try {
+                        Log.d(TAG, "$logPrefix: Trying double-press for previous track")
+                        
+                        // First press
+                        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                        val now = android.os.SystemClock.uptimeMillis()
+                        val eventDown1 = KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                        val eventUp1 = KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                        
+                        audioManager.dispatchMediaKeyEvent(eventDown1)
+                        Thread.sleep(200)
+                        audioManager.dispatchMediaKeyEvent(eventUp1)
+                        
+                        // Short delay between presses
+                        Thread.sleep(300)
+                        
+                        // Second press
+                        val later = android.os.SystemClock.uptimeMillis()
+                        val eventDown2 = KeyEvent(later, later, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                        val eventUp2 = KeyEvent(later, later, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 0)
+                        
+                        audioManager.dispatchMediaKeyEvent(eventDown2)
+                        Thread.sleep(200)
+                        audioManager.dispatchMediaKeyEvent(eventUp2)
+                        
+                        Log.d(TAG, "$logPrefix: Double-press for previous track completed")
+                        success = true
+                    } catch (e: Exception) {
+                        Log.e(TAG, "$logPrefix: Double-press failed: ${e.message}")
+                        e.printStackTrace()
+                    }
+                }
+                
+                // 4. Try broadcast intent as last fallback
+                if (!success) {
+                    try {
+                        Log.d(TAG, "$logPrefix: Trying broadcast intent as fallback")
+                        val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                        val eventUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                        
+                        val mediaIntent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                        mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, eventDown)
+                        sendOrderedBroadcast(mediaIntent, null)
+                        
+                        Thread.sleep(400)  // Longer delay for better reliability
+                        
+                        mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, eventUp)
+                        sendOrderedBroadcast(mediaIntent, null)
+                        Log.d(TAG, "$logPrefix: Media previous button press broadcast sent as fallback")
+                        success = true
+                    } catch (e: Exception) {
+                        Log.e(TAG, "$logPrefix: Fallback media previous control also failed: ${e.message}")
+                        e.printStackTrace()
+                    }
+                }
+                
+                // Process command immediately and continue
             }
         }
         

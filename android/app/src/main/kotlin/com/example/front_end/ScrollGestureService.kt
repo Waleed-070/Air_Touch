@@ -51,15 +51,25 @@ class ScrollGestureService : AccessibilityService() {
                     
                     Log.d(TAG, "Received gesture scroll broadcast: direction=$direction, ($startX,$startY) to ($endX,$endY)")
                     
-                    // Perform appropriate scroll based on direction
-                    if (direction == "up") {
-                        // Scroll up - swipe from bottom to top
-                        performScroll(500f, 1000f, 500f, 500f, duration)
-                        Log.d(TAG, "Performing UP scroll gesture (bottom to top)")
+                    // Determine if this is a horizontal or vertical gesture
+                    val isHorizontal = Math.abs(endX - startX) > Math.abs(endY - startY)
+                    
+                    if (isHorizontal) {
+                        // Horizontal swipe (left/right)
+                        Log.d(TAG, "Performing HORIZONTAL swipe: $direction")
+                        performHorizontalSwipe(startX, startY, endX, endY, duration)
                     } else {
-                        // Scroll down - swipe from top to bottom
-                        performScroll(500f, 500f, 500f, 1000f, duration)
-                        Log.d(TAG, "Performing DOWN scroll gesture (top to bottom)")
+                        // Vertical scroll (up/down)
+                        // Perform appropriate scroll based on direction
+                        if (direction == "up") {
+                            // Scroll up - swipe from bottom to top
+                            performScroll(500f, 1000f, 500f, 500f, duration)
+                            Log.d(TAG, "Performing UP scroll gesture (bottom to top)")
+                        } else {
+                            // Scroll down - swipe from top to bottom
+                            performScroll(500f, 500f, 500f, 1000f, duration)
+                            Log.d(TAG, "Performing DOWN scroll gesture (top to bottom)")
+                        }
                     }
                 } else if (intent?.action == "com.example.front_end.PERFORM_GLOBAL_ACTION") {
                     val action = intent.getStringExtra("action") ?: ""
@@ -71,6 +81,17 @@ class ScrollGestureService : AccessibilityService() {
                     } else if (action == "home") {
                         Log.d(TAG, "Received global action broadcast: press home button")
                         performHomeButtonPress()
+                    } else if (action == "swipe") {
+                        Log.d(TAG, "Received global action broadcast: swipe $direction")
+                        
+                        // Determine coordinates based on direction
+                        if (direction == "left") {
+                            // For swipe left, start on right side and move to left
+                            performHorizontalSwipe(900f, 600f, 300f, 600f, 300L)
+                        } else {
+                            // For swipe right, start on left side and move to right
+                            performHorizontalSwipe(300f, 600f, 900f, 600f, 300L)
+                        }
                     }
                 }
             }
@@ -177,6 +198,58 @@ class ScrollGestureService : AccessibilityService() {
             Log.d(TAG, "Dispatch gesture result: $result")
         } catch (e: Exception) {
             Log.e(TAG, "Error performing scroll gesture: ${e.message}")
+        }
+    }
+    
+    @RequiresApi(Build.VERSION_CODES.N)
+    private fun performHorizontalSwipe(startX: Float, startY: Float, endX: Float, endY: Float, duration: Long) {
+        try {
+            Log.d(TAG, "Performing horizontal swipe from ($startX,$startY) to ($endX,$endY)")
+            
+            // Create a path for the swipe
+            val path = Path()
+            path.moveTo(startX, startY)
+            path.lineTo(endX, endY)
+            
+            // Create a stroke with the path
+            val gestureBuilder = GestureDescription.Builder()
+            val stroke = GestureDescription.StrokeDescription(path, 0, duration)
+            gestureBuilder.addStroke(stroke)
+            
+            // Dispatch the gesture
+            val callback = object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription) {
+                    super.onCompleted(gestureDescription)
+                    Log.d(TAG, "Horizontal swipe gesture completed successfully")
+                    
+                    // Send broadcast to confirm completion
+                    val resultIntent = Intent("com.example.front_end.GESTURE_COMPLETED")
+                    resultIntent.putExtra("type", "swipe")
+                    resultIntent.putExtra("success", true)
+                    sendBroadcast(resultIntent)
+                }
+                
+                override fun onCancelled(gestureDescription: GestureDescription) {
+                    super.onCancelled(gestureDescription)
+                    Log.e(TAG, "Horizontal swipe gesture cancelled")
+                    
+                    // Send broadcast to confirm failure
+                    val resultIntent = Intent("com.example.front_end.GESTURE_COMPLETED")
+                    resultIntent.putExtra("type", "swipe")
+                    resultIntent.putExtra("success", false)
+                    resultIntent.putExtra("reason", "cancelled")
+                    sendBroadcast(resultIntent)
+                }
+            }
+            
+            val result = dispatchGesture(gestureBuilder.build(), callback, null)
+            Log.d(TAG, "Horizontal swipe dispatch result: $result")
+            
+            if (!result) {
+                Log.e(TAG, "Failed to dispatch horizontal swipe gesture")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error performing horizontal swipe gesture: ${e.message}")
         }
     }
 } 

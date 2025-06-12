@@ -14,6 +14,22 @@ class GestureDetectionPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final gestures = [
+      {'label': 'Thumbs Up', 'type': 'thumbs_up'},
+      {'label': 'Move', 'type': 'move'},
+      {'label': 'Thumbs Down', 'type': 'thumbs_down'},
+      {'label': 'Scroll Down', 'type': 'scroll_down'},
+      {'label': 'Open App', 'type': 'open_app'},
+      {'label': 'Scroll Up', 'type': 'scroll_up'},
+      {'label': 'Fist (Volume)', 'type': 'fist'},
+      {'label': 'Click', 'type': 'click'},
+      {'label': 'Swipe Left', 'type': 'swipe_left'},
+      {'label': 'Play/Pause', 'type': 'play_pause'},
+      {'label': 'Swipe Right', 'type': 'swipe_right'},
+      {'label': 'Backward', 'type': 'backward'},
+      {'label': 'Forward', 'type': 'forward'},
+    ];
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       padding: const EdgeInsets.all(12.0),
@@ -29,91 +45,21 @@ class GestureDetectionPanel extends StatelessWidget {
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
             'Available Gestures',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
-          // const SizedBox(height: 10),
-          // Row(
-          //   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          //   children: [
-          //     const Text('Status:'),
-          //     Text(
-          //       gestureDetected ? 'Active' : 'Standby',
-          //       style: TextStyle(
-          //         color: gestureDetected ? Colors.green : Colors.grey,
-          //         fontWeight: FontWeight.bold,
-          //       ),
-          //     ),
-          //   ],
-          // ),
-          // const SizedBox(height: 8),
-          // Row(
-          //   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          //   children: [
-          //     const Text('Detected Gesture:'),
-          //     Text(
-          //       detectedGesture ?? 'None',
-          //       style: TextStyle(
-          //         color: detectedGesture != null
-          //             ? Colors.black
-          //             : Colors.grey,
-          //         fontWeight: FontWeight.bold,
-          //       ),
-          //     ),
-          //   ],
-          // ),
-          // if (confidence != null) ...[
-          //   const SizedBox(height: 8),
-          //   Row(
-          //     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          //     children: [
-          //       const Text('Confidence:'),
-          //       Text(
-          //         '${(confidence! * 100).toStringAsFixed(1)}%',
-          //         style: const TextStyle(
-          //           fontWeight: FontWeight.bold,
-          //         ),
-          //       ),
-          //     ],
-          //   ),
-          // ],
-          // const SizedBox(height: 10),
-          // const Text('Available Gestures:',
-          //     style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 3),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildGestureIndicator('Thumbs Up', 'thumbs_up'),
-               _buildGestureIndicator('Move', 'move'),
-              _buildGestureIndicator('Thumbs Down', 'thumbs_down'),
-             
-              // _buildGestureIndicator('Click', 'click'),
-              
-            ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8.0,
+            runSpacing: 8.0,
+            alignment: WrapAlignment.center,
+            children: gestures.map((gesture) {
+              return _buildGestureIndicator(
+                  gesture['label']!, gesture['type']!);
+            }).toList(),
           ),
-          const SizedBox(height: 3),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildGestureIndicator('Scroll Down', 'scroll_down'),
-              _buildGestureIndicator('Open App', 'open_app'),
-              _buildGestureIndicator('Scroll Up', 'scroll_up'),
-
-            ],
-          ),
-          // const SizedBox(height: 3),
-          // Row(
-          //   mainAxisAlignment: MainAxisAlignment.spaceAround,
-          //   children: [
-
-                
-
-          //   ],
-          // ),
           if (detectedGesture == 'open_app') ...[
             const SizedBox(height: 15),
             const Center(
@@ -126,7 +72,6 @@ class GestureDetectionPanel extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(height: 20),
         ],
       ),
     );

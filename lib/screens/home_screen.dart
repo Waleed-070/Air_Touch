@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -8,11 +9,11 @@ import 'package:image/image.dart' as img;
 import 'dart:typed_data';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
-import 'package:flutter/services.dart';
 import 'dart:io';
 import 'package:uuid/uuid.dart';
 import 'package:flutter/gestures.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/foundation.dart';
 
 // Import services
 import '../services/camera_service.dart';
@@ -20,6 +21,7 @@ import '../services/gesture_service.dart';
 import '../services/instagram_launcher_service.dart';
 import '../services/background_service.dart';
 import '../services/call_detection_service.dart';
+import '../services/media_control_service.dart';
 
 // Import widgets
 import '../widgets/gesture_detection_panel.dart';
@@ -43,6 +45,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Offset _fingerPosition = Offset.zero;  // New position state
   bool _hasIncomingCall = false;
   bool _hasOngoingCall = false;
+  bool _isFistDetected = false;
+  double _lastYPosition = 0.0;
   
   String? detectedGesture;
   double? confidence;
@@ -56,6 +60,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final InstagramLauncherService _instagramLauncherService = InstagramLauncherService();
   final BackgroundService _backgroundService = BackgroundService();
   final CallDetectionService _callDetectionService = CallDetectionService();
+  final MediaControlService _mediaControlService = MediaControlService();
+  final MethodChannel _volumeChannel = const MethodChannel('com.example.app/volume_control');
+  final MethodChannel _backgroundChannel = const MethodChannel('com.example.app/background');
 
   // Add a timer variable at the class level
   Timer? _touchIndicatorTimer;
@@ -356,6 +363,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   });
                 }
               }
+            } else if (gesture == 'fist' && detected) {
+              // Handle fist gesture for volume control
+              if (positionData != null) {
+                final newPosition = _convertServerPosition(
+                  positionData['x']!, 
+                  positionData['y']!,
+                  MediaQuery.of(context).size
+                );
+
+                if (!_isFistDetected) {
+                  // First time fist is detected, store initial position
+                  _lastYPosition = newPosition.dy;
+                  _isFistDetected = true;
+                } else {
+                  // Calculate vertical movement
+                  final double deltaY = _lastYPosition - newPosition.dy;
+                  _adjustVolume(deltaY);
+                }
+
+                setState(() {
+                  _showTouchIndicator = true;
+                  _fingerPosition = newPosition;
+                });
+              }
             } else if (_showTouchIndicator) {
               // Start timer to hide indicator after 250ms
               _touchIndicatorTimer?.cancel();
@@ -367,8 +398,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 }
               });
             }
+
+            // Reset fist detection state when gesture changes
+            if (gesture != 'fist') {
+              _isFistDetected = false;
+            }
             
-            // Only update UI state if there's an actual change
             if (shouldUpdateState) {
               setState(() {
                 gestureDetected = detected;
@@ -379,12 +414,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           }
         },
         onGestureAction: (gesture, confidenceValue) {
-          _handleGestureAction(gesture, confidenceValue);
+          if (gesture == 'backward') {
+            // Use the async handler for backward gesture
+            _handleBackwardGesture(confidenceValue);
+          } else {
+            // Use the regular handler for all other gestures
+            _handleGestureAction(gesture, confidenceValue);
+          }
         },
         inBackground: _appInBackground,
       );
     } catch (e) {
-      print('Error during frame processing: $e');
+      print('Error processing frame: $e');
       
       // Check for buffer timeout errors and restart camera if needed
       if (e.toString().contains('timeout') || e.toString().contains('TIMED_OUT')) {
@@ -433,6 +474,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return Offset(amplifiedX, amplifiedY);
   }
   
+  // Original gesture handling method for all gestures except backward
   void _handleGestureAction(String gesture, double confidenceValue) {
     // Handle ongoing call termination
     if (_hasOngoingCall && gesture == 'thumbs_down' && confidenceValue > 0.70) {
@@ -461,8 +503,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // Handle regular gestures (existing functionality)
     if (gesture == 'open_app') {
       if (_appInBackground) {
-        // Show notification or use background launch for Instagram
-        _backgroundService.setAppBackground(true, true);
         _instagramLauncherService.tryLaunchInstagram(
           fromGesture: true,
           inBackground: true
@@ -484,6 +524,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           inBackground: false
         );
       }
+    } else if (gesture == 'swipe_left' || gesture == 'swipe_right') {
+      // Handle horizontal swipe gestures
+      final bool isSwipeLeft = gesture == 'swipe_left';
+      
+      if (mounted) {
+        // Provide haptic feedback for user
+        HapticFeedback.mediumImpact();
+        
+        // Show visual feedback
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isSwipeLeft ? '← Swipe Left detected' : '→ Swipe Right detected'),
+            backgroundColor: Colors.blue,
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+      
+      // Perform horizontal swipe action
+      _performHorizontalSwipe(isSwipeLeft, _appInBackground);
+      
     } else if (gesture == 'home') {
       // Press home button and restart camera when app resumes
       _backgroundService.pressHomeButton(onPressed: () {
@@ -495,6 +556,170 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           }
         });
       });
+    } else if (gesture == 'play_pause') {
+      // Handle play/pause gesture to control media playback
+      print('Play/Pause gesture detected - toggling media playback');
+      
+      // Provide more noticeable haptic feedback for user
+      HapticFeedback.heavyImpact();
+      
+      // Use background service if app is in background, otherwise use media service directly
+      if (_appInBackground) {
+        // Use background service for background playback control
+        _backgroundService.toggleMediaPlayPause(inBackground: true);
+      } else {
+        // Toggle media play/pause using our service when in foreground
+        _mediaControlService.togglePlayPause().then((success) {
+          if (mounted) {
+            // Always show feedback notification, even if unsuccessful
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.music_note, color: Colors.white),
+                    const SizedBox(width: 10),
+                    Text(
+                      success 
+                          ? '⏯️ Media ${_mediaControlService.isPlaying ? "playing" : "paused"}'
+                          : '⏯️ Media control sent - please ensure a music app is running',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                backgroundColor: Colors.blue.shade800,
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+                margin: const EdgeInsets.all(8.0),
+                elevation: 6.0,
+                action: SnackBarAction(
+                  label: 'OK',
+                  textColor: Colors.white,
+                  onPressed: () {},
+                ),
+              ),
+            );
+          }
+        });
+      }
+    } else if (gesture == 'forward') {
+      // Handle forward gesture to skip to next track
+      print('Forward gesture detected - skipping to next track');
+      
+      // Provide haptic feedback for user
+      HapticFeedback.mediumImpact();
+      
+      // Use background service if app is in background, otherwise use media service directly
+      if (_appInBackground) {
+        // Use background service for background control
+        _backgroundService.skipToNext(inBackground: true);
+      } else {
+        // Skip to next track using our service when in foreground
+        _mediaControlService.skipNext().then((success) {
+          if (mounted) {
+            // Show feedback notification
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.skip_next, color: Colors.white),
+                    const SizedBox(width: 10),
+                    Text(
+                      success 
+                          ? '⏭️ Skipped to next track'
+                          : '⏭️ Next track command sent - please ensure a music app is running',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                backgroundColor: Colors.blue.shade800,
+                duration: const Duration(seconds: 1),
+                behavior: SnackBarBehavior.floating,
+                margin: const EdgeInsets.all(8.0),
+                elevation: 6.0,
+              ),
+            );
+          }
+        });
+      }
+    }
+  }
+  
+  // Async gesture handling specifically for backward gesture
+  Future<void> _handleBackwardGesture(double confidenceValue) async {
+    // Handle backward gesture to skip to previous track
+    print('Backward gesture detected - skipping to previous track');
+    
+    // Provide haptic feedback for user
+    HapticFeedback.mediumImpact();
+    
+    // Use background service if app is in background, otherwise use media service directly
+    if (_appInBackground) {
+      // Use background service for background control with multiple attempts
+      _backgroundService.skipToPrevious(inBackground: true);
+      
+      // Wait a short delay and try again for better reliability
+      Future.delayed(const Duration(milliseconds: 300), () {
+        _backgroundService.skipToPrevious(inBackground: true);
+      });
+      
+      // Also try to use direct approach which uses multiple methods for maximum compatibility
+      try {
+        final methodChannel = MethodChannel('com.example.app/background_service');
+        await methodChannel.invokeMethod('directMediaPrevious', {
+          'inBackground': true,
+          'forceDoublePress': true,
+          'highPriority': true
+        });
+        print('Direct media previous command sent in background');
+      } catch (e) {
+        print('Error with direct media command: $e');
+      }
+    } else {
+      // First attempt with standard approach
+      bool success = await _mediaControlService.skipPrevious();
+      
+      // If first attempt doesn't seem successful, try a second attempt
+      if (!success) {
+        // Wait a short delay and try again
+        await Future.delayed(const Duration(milliseconds: 300));
+        success = await _mediaControlService.skipPrevious();
+      }
+      
+      if (mounted) {
+        // Show feedback notification
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.skip_previous, color: Colors.white),
+                const SizedBox(width: 10),
+                Text(
+                  success 
+                      ? '⏮️ Skipped to previous track'
+                      : '⏮️ Previous track command sent - please ensure a music app is running',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.blue.shade800,
+            duration: const Duration(seconds: 1),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(8.0),
+            elevation: 6.0,
+          ),
+        );
+      }
+    }
+  }
+  
+  // Main gesture action handler - delegate to appropriate method
+  void onGestureAction(String gesture, double confidence) {
+    if (gesture == 'backward') {
+      // Handle backward gesture separately with async method
+      _handleBackwardGesture(confidence);
+    } else {
+      // Handle all other gestures with original method
+      _handleGestureAction(gesture, confidence);
     }
   }
   
@@ -775,92 +1000,99 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
+  // Function to adjust volume
+  Future<void> _adjustVolume(double deltaY) async {
+    try {
+      // Calculate how many 5-pixel increments have been moved
+      int steps = (deltaY.abs() / 5.0).floor();
+      if (steps > 0) {
+        // Calculate volume change (10 points per step)
+        int volumeChange = steps * 7;
+        
+        // deltaY is positive when moving down (should decrease volume)
+        // deltaY is negative when moving up (should increase volume)
+        if (deltaY > 0) {
+          // Moving down, so decrease volume
+          volumeChange = -volumeChange;
+        }
+        // Moving up (deltaY < 0), keep volumeChange positive to increase volume
+        
+        print('Fist movement: ${deltaY > 0 ? "DOWN" : "UP"}, Volume change: $volumeChange');
+        
+        await _volumeChannel.invokeMethod('adjustVolume', {
+          'volumeChange': volumeChange,
+        });
+        
+        // Update the last position
+        _lastYPosition = _fingerPosition.dy;
+      }
+    } catch (e) {
+      print('Error adjusting volume: $e');
+    }
+  }
+
+  // New method to handle horizontal swipes
+  Future<void> _performHorizontalSwipe(bool isSwipeLeft, bool inBackground) async {
+    print('Performing ${isSwipeLeft ? "left" : "right"} swipe gesture');
+    
+    try {
+      // Use the background service to perform horizontal swipe
+      _backgroundService.simulateSwipe(
+        swipeLeft: isSwipeLeft,
+        inBackground: inBackground
+      );
+    } catch (e) {
+      print('Error performing horizontal swipe: $e');
+      // Try fallback method
+      _fallbackHorizontalSwipe(isSwipeLeft, inBackground);
+    }
+  }
+  
+  // Fallback method for horizontal swipe when direct touch fails
+  Future<void> _fallbackHorizontalSwipe(bool isSwipeLeft, bool inBackground) async {
+    try {
+      // For horizontal swipes, we can simulate as a series of touch actions
+      final startX = isSwipeLeft ? 0.8 : 0.2; // Start position (normalized 0-1)
+      final endX = isSwipeLeft ? 0.2 : 0.8;   // End position (normalized 0-1)
+      const middleY = 0.5;                    // Middle of screen height
+      
+      // Calculate screen dimensions
+      final screenWidth = MediaQuery.of(context).size.width;
+      final screenHeight = MediaQuery.of(context).size.height;
+      
+      // Calculate actual pixel positions
+      final startPosX = (startX * screenWidth).round();
+      final endPosX = (endX * screenWidth).round();
+      final posY = (middleY * screenHeight).round();
+      
+      // Try to simulate touch sequence using the regular backgroundChannel
+      await _backgroundChannel.invokeMethod('simulateTouchSequence', {
+        'actions': [
+          {'type': 'down', 'x': startPosX, 'y': posY},
+          {'type': 'move', 'x': endPosX, 'y': posY},
+          {'type': 'up', 'x': endPosX, 'y': posY}
+        ],
+        'duration': 200, // Duration in milliseconds for the swipe
+        'inBackground': inBackground
+      });
+      
+      print('Fallback horizontal swipe attempted');
+    } catch (e) {
+      print('Fallback horizontal swipe also failed: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color.fromARGB(245, 38, 126, 117),
       appBar: AppBar(
-        automaticallyImplyLeading: false,
         title: const Text('Air Touch'),
-        backgroundColor: _hasIncomingCall 
-            ? Colors.red.shade700 
-            : (_hasOngoingCall ? Colors.green.shade700 : null),
-        foregroundColor: _hasIncomingCall || _hasOngoingCall ? Colors.white : null,
         actions: [
-          // Only show call buttons during incoming call
-          if (_hasIncomingCall) ...[
-            // Accept call button (green)
+          // Add an icon button to open the settings screen
             IconButton(
-              icon: const Icon(
-                Icons.call,
-                color: Colors.green,
-              ),
-              tooltip: 'Accept call',
-              onPressed: () async {
-                // Handle accepting the call
-                print('Attempting to accept call');
-                final bool success = await _callDetectionService.acceptCall();
-                if (success) {
-                  print('Call accepted successfully');
-                } else {
-                  print('Failed to accept call');
-                  // Fall back to simulation if the actual call acceptance fails
-                  _callDetectionService.simulateIncomingCall(isIncoming: false);
-                }
-              },
-            ),
-            // Decline call button (red)
-            IconButton(
-              icon: const Icon(
-                Icons.call_end,
-                color: Colors.red,
-              ),
-              tooltip: 'Decline call',
-              onPressed: () async {
-                // Handle declining the call
-                print('Attempting to decline call');
-                final bool success = await _callDetectionService.rejectCall();
-                if (success) {
-                  print('Call declined successfully');
-                } else {
-                  print('Failed to decline call');
-                  // Fall back to simulation if the actual call rejection fails
-                  _callDetectionService.simulateIncomingCall(isIncoming: false);
-                }
-              },
-            ),
-          ] else if (_hasOngoingCall) ...[
-            // Show ongoing call UI
-            const Text(
-              '📱 Call in Progress',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Use 👎 to end call',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.white,
-              ),
-            ),
-          ],
-          if (isSpatialTouchEnabled)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Restart camera',
+            icon: const Icon(Icons.settings),
               onPressed: () {
-                print('Manual camera restart requested');
-                _cameraService.stopImageStream();
-                if (_cameraService.controller != null) {
-                  _cameraService.dispose();
-                }
-                _initializeCamera();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Camera restarting...'), duration: Duration(seconds: 1)),
-                );
+              // Navigate to settings or show a dialog
               },
             ),
         ],
@@ -962,6 +1194,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _cameraService.dispose();
     _callDetectionService.dispose();
     _gestureService.dispose();
+    _mediaControlService.dispose();
     
     // Stop background service when the app is fully closed
     if (Platform.isAndroid) {
